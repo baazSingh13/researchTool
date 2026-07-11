@@ -1,7 +1,7 @@
 const defaultInstruction =
   "Find papers from 2022 onward about FPGA-based spiking neural networks, download accessible full texts, exclude review articles, compare hardware platforms and neuron models, identify unresolved limitations, and create a cited literature-review report.";
 
-const papers = [
+const demoPapers = [
   {
     id: "w1",
     title: "FPGA acceleration of spiking neural networks with event-driven LIF neurons",
@@ -142,6 +142,7 @@ const els = {
   upload: document.querySelector("#paperUpload"),
   uploadNote: document.querySelector("#uploadNote"),
   run: document.querySelector("#runPlan"),
+  apiStatus: document.querySelector("#apiStatus"),
   planJson: document.querySelector("#planJson"),
   planTitle: document.querySelector("#planTitle"),
   paperList: document.querySelector("#paperList"),
@@ -164,6 +165,7 @@ const els = {
   canvas: document.querySelector("#citationCanvas")
 };
 
+let papers = [...demoPapers];
 let currentResults = [];
 let selectedLibrary = new Set(["w1", "w2", "w4"]);
 
@@ -211,6 +213,15 @@ function statusClass(access) {
   return "warn";
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 function canDownload(paper) {
   if (!paper.pdf) return false;
   if (paper.access.includes("Open-access")) return true;
@@ -239,6 +250,43 @@ function applyFilters() {
   updateUI(plan);
 }
 
+async function runLiveSearch() {
+  const plan = buildPlan();
+  if (location.protocol === "file:") {
+    els.apiStatus.textContent = "Open through server.py to use live search. Demo corpus is active.";
+    setAnswer();
+    return;
+  }
+
+  els.run.disabled = true;
+  els.run.textContent = "Searching...";
+  els.apiStatus.textContent = "Searching live scholarly sources...";
+
+  try {
+    const response = await fetch("/api/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(plan)
+    });
+    if (!response.ok) throw new Error(`Search failed with HTTP ${response.status}`);
+    const payload = await response.json();
+    papers = payload.results?.length ? payload.results : [...demoPapers];
+    selectedLibrary = new Set(papers.filter((paper) => canDownload(paper)).slice(0, 3).map((paper) => paper.id));
+    els.apiStatus.textContent = payload.results?.length
+      ? `Live search returned ${payload.results.length} deduplicated works. ${payload.errors?.length ? payload.errors.join(" ") : ""}`
+      : "No live results returned. Demo corpus is active.";
+    applyFilters();
+    setAnswer();
+  } catch (error) {
+    papers = [...demoPapers];
+    els.apiStatus.textContent = `${error.message}. Demo corpus is active.`;
+    applyFilters();
+  } finally {
+    els.run.disabled = false;
+    els.run.textContent = "Execute Plan";
+  }
+}
+
 function updateUI(plan) {
   els.planTitle.textContent = plan.topic;
   els.planJson.textContent = JSON.stringify(plan, null, 2);
@@ -264,23 +312,31 @@ function renderPapers() {
           : "restricted";
       const status = statusClass(paper.access);
       const libraryText = selectedLibrary.has(paper.id) ? "In library" : "Add to library";
+      const title = escapeHtml(paper.title);
+      const abstract = escapeHtml(paper.abstract);
+      const authors = escapeHtml(paper.authors);
+      const venue = escapeHtml(paper.venue);
+      const doi = escapeHtml(paper.doi || "No DOI");
+      const type = escapeHtml(paper.type);
+      const access = escapeHtml(paper.access);
+      const sourceText = escapeHtml(paper.sources.join(" + "));
       return `
         <article class="paper-card ${blockedClass}">
           <div class="paper-meta">
             <span>${paper.year}</span>
-            <span>${paper.venue}</span>
-            <span>${paper.type}</span>
-            <span>${paper.sources.join(" + ")}</span>
+            <span>${venue}</span>
+            <span>${type}</span>
+            <span>${sourceText}</span>
           </div>
-          <h3>${paper.title}</h3>
-          <p>${paper.abstract}</p>
+          <h3>${title}</h3>
+          <p>${abstract}</p>
           <div class="paper-meta">
-            <span>${paper.authors}</span>
-            <span>${paper.doi || "No DOI"}</span>
+            <span>${authors}</span>
+            <span>${doi}</span>
             <span>${paper.citations} citations</span>
           </div>
           <div class="paper-actions">
-            <span class="status ${status}">${paper.access}</span>
+            <span class="status ${status}">${access}</span>
             <button type="button" data-action="library" data-id="${paper.id}">${libraryText}</button>
             <button type="button" data-action="trace" data-id="${paper.id}">Trace evidence</button>
             <button type="button" data-action="download" data-id="${paper.id}" ${canDownload(paper) ? "" : "disabled"}>PDF</button>
@@ -296,12 +352,12 @@ function renderMatrix() {
     .map(
       (paper) => `
       <tr>
-        <td><strong>${paper.title}</strong><br />${paper.year} / ${paper.venue}</td>
-        <td>${paper.platform}</td>
-        <td>${paper.neuron}</td>
-        <td>${paper.dataset}</td>
-        <td>${paper.limitations}</td>
-        <td><span class="status ${statusClass(paper.access)}">${paper.access}</span></td>
+        <td><strong>${escapeHtml(paper.title)}</strong><br />${paper.year} / ${escapeHtml(paper.venue)}</td>
+        <td>${escapeHtml(paper.platform)}</td>
+        <td>${escapeHtml(paper.neuron)}</td>
+        <td>${escapeHtml(paper.dataset)}</td>
+        <td>${escapeHtml(paper.limitations)}</td>
+        <td><span class="status ${statusClass(paper.access)}">${escapeHtml(paper.access)}</span></td>
       </tr>
     `
     )
@@ -317,7 +373,7 @@ function renderLedger() {
         : "blocked";
     return `
       <div class="access-row">
-        <span title="${paper.title}">${paper.title}</span>
+        <span title="${escapeHtml(paper.title)}">${escapeHtml(paper.title)}</span>
         <span class="status ${statusClass(paper.access)}">${action}</span>
       </div>
     `;
@@ -328,11 +384,11 @@ function renderLedger() {
 function renderReport(plan) {
   const platforms = [...new Set(currentResults.map((paper) => paper.platform))].join("; ");
   const neurons = [...new Set(currentResults.map((paper) => paper.neuron))].join("; ");
-  const limits = currentResults.map((paper) => `<li>${paper.limitations} <strong>[${paper.id}, ${paper.pages}]</strong></li>`).join("");
+  const limits = currentResults.map((paper) => `<li>${escapeHtml(paper.limitations)} <strong>[${escapeHtml(paper.id)}, ${escapeHtml(paper.pages)}]</strong></li>`).join("");
   els.report.innerHTML = `
-    <h3>Draft Literature Review: ${plan.topic}</h3>
+    <h3>Draft Literature Review: ${escapeHtml(plan.topic)}</h3>
     <p>The filtered corpus contains ${currentResults.length} works from ${plan.date_from} onward. Authorized full text is available for ${currentResults.filter(canDownload).length} works; the remaining records are kept as metadata or publisher links until access is clarified.</p>
-    <p>Common hardware targets include ${platforms || "no matching platforms"}. The extracted neuron models include ${neurons || "no matching neuron models"}.</p>
+    <p>Common hardware targets include ${escapeHtml(platforms || "no matching platforms")}. The extracted neuron models include ${escapeHtml(neurons || "no matching neuron models")}.</p>
     <h4>Observed gaps</h4>
     <ul>${limits || "<li>No limitations extracted for the current filter.</li>"}</ul>
   `;
@@ -446,7 +502,7 @@ els.excludeReviews.addEventListener("change", applyFilters);
 els.lawfulOnly.addEventListener("change", applyFilters);
 els.oaOnly.addEventListener("change", applyFilters);
 els.searchWithin.addEventListener("input", applyFilters);
-els.run.addEventListener("click", () => setAnswer());
+els.run.addEventListener("click", runLiveSearch);
 els.ask.addEventListener("click", () => setAnswer());
 els.reset.addEventListener("click", () => {
   els.instruction.value = defaultInstruction;
@@ -468,7 +524,10 @@ els.paperList.addEventListener("click", (event) => {
   }
   if (button.dataset.action === "trace") setAnswer(paper.id);
   if (button.dataset.action === "download" && canDownload(paper)) {
-    els.answer.innerHTML = `Queued authorized PDF retrieval for <strong>${paper.title}</strong>. Access status: ${paper.access}.`;
+    if (paper.fullTextUrl) {
+      window.open(paper.fullTextUrl, "_blank", "noopener");
+    }
+    els.answer.innerHTML = `Authorized full-text link ready for <strong>${escapeHtml(paper.title)}</strong>. Access status: ${escapeHtml(paper.access)}.`;
   }
 });
 

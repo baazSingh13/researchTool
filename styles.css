@@ -152,6 +152,10 @@ button {
   align-content: start;
 }
 
+.main-column {
+  align-content: start;
+}
+
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -253,6 +257,13 @@ input:focus {
   color: var(--muted);
   font-size: 0.82rem;
   margin: 10px 0 0;
+}
+
+.api-status {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  margin: 6px 0 0;
 }
 
 .plan-strip {

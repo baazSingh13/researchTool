@@ -4,13 +4,15 @@ A static prototype for a lawful scholarly discovery and research-analysis platfo
 
 ## Run locally
 
-Open `index.html` directly in a browser, or serve the folder:
+Run the local server to enable live scholarly API search:
 
 ```bash
-python3 -m http.server 4173
+python3 server.py
 ```
 
 Then visit `http://127.0.0.1:4173`.
+
+You can still open `index.html` directly, but that uses the built-in demo corpus only.
 
 ## Included
 
@@ -18,7 +20,10 @@ Then visit `http://127.0.0.1:4173`.
 - Source toggles for arXiv, DBLP, Crossref, OpenAlex, Semantic Scholar, Springer, PubMed, and CORE
 - Lawful access ledger with download decisions
 - Paper result cards with access status
+- Live metadata search through arXiv, DBLP, Crossref, OpenAlex, and Semantic Scholar
 - Literature matrix
 - Draft cited report view
 - Citation graph canvas
 - BibTeX and RIS export buttons
+
+Springer, PubMed, and CORE are shown in the UI as planned connectors. Springer requires official API credentials/licensing for full text; PubMed and CORE can be added next.
