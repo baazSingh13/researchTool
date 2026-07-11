@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Research Intelligence Agent</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Lawful scholarly discovery</p>
+          <h1>Research Intelligence Agent</h1>
+        </div>
+        <div class="top-actions">
+          <button type="button" class="icon-button" id="exportBib" title="Export BibTeX" aria-label="Export BibTeX">
+            <span>Bib</span>
+          </button>
+          <button type="button" class="icon-button" id="exportRis" title="Export RIS" aria-label="Export RIS">
+            <span>RIS</span>
+          </button>
+          <button type="button" class="primary-button" id="runPlan">Execute Plan</button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="instruction-panel">
+          <section class="panel compact">
+            <div class="panel-heading">
+              <h2>Instruction</h2>
+              <button type="button" class="icon-button" id="resetInstruction" title="Reset instruction" aria-label="Reset instruction">
+                <span>R</span>
+              </button>
+            </div>
+            <textarea id="instructionInput" rows="8">Find papers from 2022 onward about FPGA-based spiking neural networks, download accessible full texts, exclude review articles, compare hardware platforms and neuron models, identify unresolved limitations, and create a cited literature-review report.</textarea>
+          </section>
+
+          <section class="panel compact">
+            <div class="panel-heading">
+              <h2>Sources</h2>
+              <span class="count-pill" id="sourceCount">5 active</span>
+            </div>
+            <div class="source-grid" id="sourceGrid">
+              <label><input type="checkbox" value="arXiv" checked /> arXiv</label>
+              <label><input type="checkbox" value="DBLP" checked /> DBLP</label>
+              <label><input type="checkbox" value="Crossref" checked /> Crossref</label>
+              <label><input type="checkbox" value="OpenAlex" checked /> OpenAlex</label>
+              <label><input type="checkbox" value="Semantic Scholar" checked /> Semantic Scholar</label>
+              <label><input type="checkbox" value="Springer" /> Springer</label>
+              <label><input type="checkbox" value="PubMed" /> PubMed</label>
+              <label><input type="checkbox" value="CORE" /> CORE</label>
+            </div>
+          </section>
+
+          <section class="panel compact">
+            <div class="panel-heading">
+              <h2>Controls</h2>
+            </div>
+            <div class="control-list">
+              <label class="field-row">
+                <span>From year</span>
+                <input id="fromYear" type="number" min="1900" max="2026" step="1" value="2022" />
+              </label>
+              <label class="toggle-row">
+                <span>Exclude review articles</span>
+                <input id="excludeReviews" type="checkbox" checked />
+              </label>
+              <label class="toggle-row">
+                <span>Download only authorized full text</span>
+                <input id="lawfulOnly" type="checkbox" checked />
+              </label>
+              <label class="toggle-row">
+                <span>Prefer open access PDFs</span>
+                <input id="oaOnly" type="checkbox" />
+              </label>
+            </div>
+          </section>
+
+          <section class="panel compact">
+            <div class="panel-heading">
+              <h2>User Upload</h2>
+              <span class="status ok">Authorized</span>
+            </div>
+            <input id="paperUpload" class="file-input" type="file" accept=".pdf" />
+            <p class="small-note" id="uploadNote">Uploaded papers are marked as user-provided documents.</p>
+          </section>
+        </aside>
+
+        <section class="main-column">
+          <section class="plan-strip">
+            <div>
+              <p class="eyebrow">Interpreted plan</p>
+              <h2 id="planTitle">FPGA-based spiking neural networks</h2>
+            </div>
+            <div class="phase-tabs" id="viewTabs" role="tablist" aria-label="Views">
+              <button type="button" class="tab active" data-view="results">Results</button>
+              <button type="button" class="tab" data-view="matrix">Matrix</button>
+              <button type="button" class="tab" data-view="report">Report</button>
+            </div>
+          </section>
+
+          <section class="panel plan-panel">
+            <pre id="planJson"></pre>
+          </section>
+
+          <section class="view active" id="resultsView">
+            <div class="result-toolbar">
+              <div class="metric"><strong id="resultCount">0</strong><span>works</span></div>
+              <div class="metric"><strong id="pdfCount">0</strong><span>authorized PDFs</span></div>
+              <div class="metric"><strong id="citationCount">0</strong><span>citations traced</span></div>
+              <input id="searchWithin" type="search" placeholder="Filter results" />
+            </div>
+            <div class="paper-list" id="paperList"></div>
+          </section>
+
+          <section class="view" id="matrixView">
+            <div class="matrix-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Work</th>
+                    <th>Platform</th>
+                    <th>Neuron model</th>
+                    <th>Dataset</th>
+                    <th>Limitations</th>
+                    <th>Access</th>
+                  </tr>
+                </thead>
+                <tbody id="matrixRows"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="view" id="reportView">
+            <article class="report" id="reportOutput"></article>
+          </section>
+        </section>
+
+        <aside class="evidence-panel">
+          <section class="panel graph-panel">
+            <div class="panel-heading">
+              <h2>Citation Graph</h2>
+              <span class="status neutral">Live</span>
+            </div>
+            <canvas id="citationCanvas" width="520" height="340" aria-label="Citation graph visualization"></canvas>
+          </section>
+
+          <section class="panel compact">
+            <div class="panel-heading">
+              <h2>Access Ledger</h2>
+              <span class="count-pill" id="ledgerCount">0 checked</span>
+            </div>
+            <div class="ledger" id="accessLedger"></div>
+          </section>
+
+          <section class="panel compact">
+            <div class="panel-heading">
+              <h2>Research Chat</h2>
+              <button type="button" class="icon-button" id="askButton" title="Ask selected papers" aria-label="Ask selected papers">
+                <span>Go</span>
+              </button>
+            </div>
+            <textarea id="questionInput" rows="3">Which hardware platforms and neuron models appear most often?</textarea>
+            <div class="answer-box" id="answerBox">Execute the plan to generate page-traceable answers.</div>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
