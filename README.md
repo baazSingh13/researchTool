@@ -12,7 +12,7 @@ python3 server.py
 
 Then visit `http://127.0.0.1:4173`.
 
-You can still open `index.html` directly, but that uses the built-in demo corpus only.
+You can still open `index.html` directly or view the GitHub Pages/static version, but those modes use the built-in demo corpus only. Live search requires `server.py` because the browser sends `POST /api/search` to the local backend. If you see `HTTP 405`, you are on a static server instead of the Python backend.
 
 ## Included
 

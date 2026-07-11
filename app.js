@@ -253,7 +253,7 @@ function applyFilters() {
 async function runLiveSearch() {
   const plan = buildPlan();
   if (location.protocol === "file:") {
-    els.apiStatus.textContent = "Open through server.py to use live search. Demo corpus is active.";
+    els.apiStatus.textContent = "Live search needs the local backend. Run `python3 server.py`, then open http://127.0.0.1:4173.";
     setAnswer();
     return;
   }
@@ -268,7 +268,12 @@ async function runLiveSearch() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(plan)
     });
-    if (!response.ok) throw new Error(`Search failed with HTTP ${response.status}`);
+    if (!response.ok) {
+      if ([404, 405, 501].includes(response.status)) {
+        throw new Error("Live search backend is not running. Start it with `python3 server.py` and use http://127.0.0.1:4173.");
+      }
+      throw new Error(`Search failed with HTTP ${response.status}`);
+    }
     const payload = await response.json();
     papers = payload.results?.length ? payload.results : [...demoPapers];
     selectedLibrary = new Set(papers.filter((paper) => canDownload(paper)).slice(0, 3).map((paper) => paper.id));
@@ -279,7 +284,7 @@ async function runLiveSearch() {
     setAnswer();
   } catch (error) {
     papers = [...demoPapers];
-    els.apiStatus.textContent = `${error.message}. Demo corpus is active.`;
+    els.apiStatus.textContent = `${error.message} Demo corpus is active.`;
     applyFilters();
   } finally {
     els.run.disabled = false;
