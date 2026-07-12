@@ -317,6 +317,9 @@ def dedupe(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 class Handler(SimpleHTTPRequestHandler):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, directory=str(ROOT), **kwargs)
+
     def translate_path(self, path: str) -> str:
         path = urllib.parse.urlparse(path).path
         return str((ROOT / path.lstrip("/")).resolve())
