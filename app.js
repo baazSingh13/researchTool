@@ -250,11 +250,15 @@ function applyFilters() {
   updateUI(plan);
 }
 
+function isLocalBackendHost() {
+  return ["127.0.0.1", "localhost", "::1"].includes(location.hostname);
+}
+
 async function runLiveSearch() {
   const plan = buildPlan();
   if (location.protocol === "file:") {
-    els.apiStatus.textContent = "Live search needs the local backend. Run `python3 server.py`, then open http://127.0.0.1:4173.";
-    setAnswer();
+    els.apiStatus.textContent = "Searching with browser-only sources. Run `python3 server.py` for the full local backend.";
+    await runBrowserSearch(plan);
     return;
   }
 
@@ -263,6 +267,10 @@ async function runLiveSearch() {
   els.apiStatus.textContent = "Searching live scholarly sources...";
 
   try {
+    if (!isLocalBackendHost()) {
+      await runBrowserSearch(plan);
+      return;
+    }
     const response = await fetch("/api/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -270,7 +278,8 @@ async function runLiveSearch() {
     });
     if (!response.ok) {
       if ([404, 405, 501].includes(response.status)) {
-        throw new Error("Live search backend is not running. Start it with `python3 server.py` and use http://127.0.0.1:4173.");
+        await runBrowserSearch(plan);
+        return;
       }
       throw new Error(`Search failed with HTTP ${response.status}`);
     }
@@ -290,6 +299,171 @@ async function runLiveSearch() {
     els.run.disabled = false;
     els.run.textContent = "Execute Plan";
   }
+}
+
+async function runBrowserSearch(plan) {
+  const payload = await browserSearch(plan);
+  papers = payload.results.length ? payload.results : [...demoPapers];
+  selectedLibrary = new Set(papers.filter((paper) => canDownload(paper)).slice(0, 3).map((paper) => paper.id));
+  els.apiStatus.textContent = payload.results.length
+    ? `Static GitHub search returned ${payload.results.length} deduplicated works. ${payload.errors.length ? payload.errors.join(" ") : ""}`
+    : `Static GitHub search found no live results. ${payload.errors.join(" ")} Demo corpus is active.`;
+  applyFilters();
+  setAnswer();
+}
+
+async function browserSearch(plan) {
+  const jobs = [];
+  if (plan.sources.includes("OpenAlex")) jobs.push(searchOpenAlexBrowser(plan));
+  if (plan.sources.includes("Crossref")) jobs.push(searchCrossrefBrowser(plan));
+  const settled = await Promise.allSettled(jobs);
+  const errors = [];
+  const found = [];
+  settled.forEach((result) => {
+    if (result.status === "fulfilled") {
+      found.push(...result.value.results);
+      errors.push(...result.value.errors);
+    } else {
+      errors.push(`Browser source unavailable: ${result.reason?.message || "unknown error"}.`);
+    }
+  });
+
+  const skipped = plan.sources.filter((source) => !["OpenAlex", "Crossref"].includes(source));
+  if (skipped.length) {
+    errors.push(`${skipped.join(", ")} need the local backend or a hosted API service.`);
+  }
+  return { results: dedupeBrowserWorks(found), errors };
+}
+
+async function searchOpenAlexBrowser(plan) {
+  const url = new URL("https://api.openalex.org/works");
+  url.searchParams.set("search", plan.topic);
+  url.searchParams.set("filter", `from_publication_date:${plan.date_from}-01-01`);
+  url.searchParams.set("per-page", "12");
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`OpenAlex HTTP ${response.status}`);
+  const data = await response.json();
+  return {
+    errors: [],
+    results: (data.results || []).map((item) => {
+      const location = item.primary_location || {};
+      const source = location.source || {};
+      const oa = item.open_access || {};
+      const best = item.best_oa_location || {};
+      const fullTextUrl = best.pdf_url || best.landing_page_url || "";
+      return normalizeBrowserWork({
+        title: item.display_name,
+        authors: (item.authorships || []).map((entry) => entry.author?.display_name).filter(Boolean).join(", "),
+        year: item.publication_year,
+        venue: source.display_name || "OpenAlex",
+        sources: ["OpenAlex"],
+        doi: (item.doi || "").replace("https://doi.org/", ""),
+        type: item.type_crossref || item.type || "research article",
+        access: oa.is_oa && fullTextUrl ? "Open-access full text" : location.landing_page_url ? "Publisher page available" : "Metadata and abstract only",
+        license: best.license || "Unknown",
+        pdf: Boolean(oa.is_oa && fullTextUrl),
+        fullTextUrl: oa.is_oa ? fullTextUrl : "",
+        abstract: abstractFromInvertedIndex(item.abstract_inverted_index) || "No abstract available from OpenAlex.",
+        citations: item.cited_by_count || 0
+      });
+    })
+  };
+}
+
+async function searchCrossrefBrowser(plan) {
+  const url = new URL("https://api.crossref.org/works");
+  url.searchParams.set("query", plan.topic);
+  url.searchParams.set("filter", `from-pub-date:${plan.date_from}-01-01`);
+  url.searchParams.set("rows", "12");
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Crossref HTTP ${response.status}`);
+  const data = await response.json();
+  return {
+    errors: [],
+    results: ((data.message || {}).items || []).map((item) => {
+      const yearParts = item["published-print"] || item["published-online"] || item.created || {};
+      const year = ((yearParts["date-parts"] || [[0]])[0] || [0])[0] || 0;
+      const pdfLink = (item.link || []).find((link) => String(link["content-type"] || "").includes("pdf"));
+      return normalizeBrowserWork({
+        title: (item.title || ["Untitled work"])[0],
+        authors: (item.author || [])
+          .map((author) => `${author.given || ""} ${author.family || ""}`.trim())
+          .filter(Boolean)
+          .join(", "),
+        year,
+        venue: (item["container-title"] || ["Crossref"])[0] || "Crossref",
+        sources: ["Crossref"],
+        doi: item.DOI || "",
+        type: item.type || "research article",
+        access: pdfLink?.URL ? "Open-access full text" : "Publisher page available",
+        license: ((item.license || [{}])[0] || {}).URL || "Unknown",
+        pdf: Boolean(pdfLink?.URL),
+        fullTextUrl: pdfLink?.URL || "",
+        abstract: stripHtml(item.abstract || "") || "No abstract available from Crossref.",
+        citations: item["is-referenced-by-count"] || 0
+      });
+    })
+  };
+}
+
+function normalizeBrowserWork(work) {
+  return {
+    id: "",
+    title: work.title || "Untitled work",
+    authors: work.authors || "Unknown authors",
+    year: Number(work.year || 0),
+    venue: work.venue || "Unknown venue",
+    sources: work.sources || [],
+    doi: work.doi || "",
+    type: work.type || "research article",
+    platform: "Not extracted yet",
+    neuron: "Not extracted yet",
+    dataset: "Not extracted yet",
+    limitations: "Requires document analysis after authorized full text is available.",
+    access: work.access || "Metadata and abstract only",
+    license: work.license || "Unknown",
+    pdf: Boolean(work.pdf),
+    fullTextUrl: work.fullTextUrl || "",
+    pages: "metadata record",
+    abstract: work.abstract || "No abstract available.",
+    citations: Number(work.citations || 0)
+  };
+}
+
+function dedupeBrowserWorks(items) {
+  const byKey = new Map();
+  items.forEach((item) => {
+    const key = item.doi || item.title.toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 120);
+    if (!key) return;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, item);
+      return;
+    }
+    existing.sources = [...new Set([...existing.sources, ...item.sources])].sort();
+    if (!existing.pdf && item.pdf) {
+      existing.access = item.access;
+      existing.license = item.license;
+      existing.pdf = item.pdf;
+      existing.fullTextUrl = item.fullTextUrl;
+    }
+    if (item.abstract.length > existing.abstract.length) existing.abstract = item.abstract;
+    existing.citations = Math.max(existing.citations, item.citations);
+  });
+  return [...byKey.values()].map((item, index) => ({ ...item, id: `w${index + 1}` }));
+}
+
+function abstractFromInvertedIndex(index) {
+  if (!index || typeof index !== "object") return "";
+  const words = [];
+  Object.entries(index).forEach(([word, positions]) => {
+    positions.forEach((position) => words.push([position, word]));
+  });
+  return words.sort((a, b) => a[0] - b[0]).map((entry) => entry[1]).join(" ");
+}
+
+function stripHtml(value) {
+  return String(value || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function updateUI(plan) {
